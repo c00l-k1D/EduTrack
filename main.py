@@ -3,10 +3,18 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import json
+import os
 import re
+import shutil
 import sqlite3
+import subprocess
 import sys
+import threading
 import tkinter as tk
+import urllib.error
+import urllib.request
+import webbrowser
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -36,6 +44,158 @@ DEFAULT_MIN_AGE = 14
 DEFAULT_MAX_AGE = 15
 DEFAULT_ADMIN_USER = "admin"
 DEFAULT_ADMIN_PASSWORD = "admin123"
+DEFAULT_UPDATE_REPO = "https://github.com/c00l-k1D/EduTrack"
+APP_VERSION = "1.0.0"
+
+USER_AGREEMENT_TEXT = '''# ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ
+
+## об использовании программного обеспечения EduTrack
+**Редакция 1.0**
+
+### 1. Общие положения
+1.1. Настоящее Пользовательское соглашение (далее — Соглашение) определяет условия использования программного обеспечения EduTrack (далее — Программа).
+
+1.2. EduTrack представляет собой специализированное настольное программное обеспечение, предназначенное для автоматизации учёта учащихся образовательных учреждений, управления сведениями о контингенте, организации тестирования и формирования отчётности.
+
+1.3. Программа предназначена для использования уполномоченными сотрудниками образовательных учреждений в рамках выполнения ими должностных обязанностей.
+
+1.4. Использование Программы означает согласие пользователя с условиями настоящего Соглашения.
+
+1.5. Администрация Программы оставляет за собой право изменять настоящее Соглашение с публикацией актуальной редакции.
+
+### 2. Назначение и функциональность Программы
+2.1. Программа EduTrack предназначена для выполнения следующих задач:
+
+- Формирование и ведение единого реестра учащихся.
+- Регистрация новых поступающих.
+- Учёт движения контингента учащихся.
+- Изменение сведений об учащихся и их образовательном статусе.
+- Формирование списков участников тестирования.
+- Хранение истории обучения и результатов тестирования.
+- Архивирование сведений о выпускниках и выбывших учащихся.
+- Импорт и экспорт структурированных данных.
+- Формирование статистических и аналитических отчётов.
+
+2.2. Функциональные возможности Программы могут изменяться и дополняться в последующих версиях.
+
+### 3. Права и обязанности пользователя
+3.1. Пользователь имеет право:
+
+- Использовать Программу по её прямому назначению.
+- Вносить, редактировать и систематизировать сведения в пределах предоставленных полномочий.
+- Формировать и экспортировать отчёты.
+- Создавать резервные копии базы данных.
+- Использовать доступные инструменты восстановления информации.
+- Обращаться за технической поддержкой при обнаружении неисправностей.
+
+3.2. Пользователь обязуется:
+
+- Использовать Программу исключительно в законных целях.
+- Вносить достоверную и актуальную информацию.
+- Соблюдать установленные учреждением правила обработки персональных данных.
+- Не предоставлять доступ к базе данных неуполномоченным лицам.
+- Обеспечивать сохранность учётных данных и резервных копий.
+- Не использовать сведения об учащихся в личных или коммерческих целях.
+- Своевременно актуализировать информацию о зачислении, переводе и выбытии учащихся.
+- Не предпринимать действий, способных нарушить работоспособность Программы или привести к потере информации.
+
+### 4. Обработка и хранение персональных данных
+4.1. В процессе эксплуатации EduTrack могут обрабатываться персональные данные учащихся, необходимые для выполнения задач образовательного учреждения.
+
+4.2. К таким сведениям могут относиться:
+
+- Фамилия, имя и отчество.
+- Дата рождения.
+- Сведения о классе и периоде обучения.
+- Статус обучения.
+- История зачисления и выбытия.
+- Результаты предусмотренных учреждением тестирований.
+
+4.3. Образовательное учреждение самостоятельно определяет правовые основания, цели, состав и порядок обработки персональных данных, а также выступает оператором персональных данных в случаях, предусмотренных применимым законодательством.
+
+4.4. Пользователь обязан обеспечивать обработку персональных данных исключительно в рамках предоставленных полномочий и установленных целей.
+
+4.5. Запрещается передавать, публиковать или иным образом распространять персональные данные учащихся без соответствующих правовых оснований.
+
+4.6. Сведения должны храниться с соблюдением установленных требований к защите информации и срокам хранения персональных данных.
+
+4.7. Настоящее Соглашение не заменяет отдельные документы, регулирующие обработку и защиту персональных данных образовательного учреждения.
+
+### 5. Хранение информации и резервное копирование
+5.1. EduTrack предусматривает локальное хранение информации на компьютере, на котором установлена Программа.
+
+5.2. Ответственность за организацию надлежащего хранения базы данных и резервных копий несёт образовательное учреждение в пределах установленного распределения обязанностей.
+
+5.3. Пользователь обязан соблюдать правила резервного копирования и не допускать несанкционированного доступа к файлам базы данных.
+
+5.4. Перед выполнением операций, способных существенно изменить структуру или содержимое базы данных, рекомендуется создавать резервную копию.
+
+5.5. Удаление, повреждение или потеря локальных файлов могут привести к невозможности восстановления отдельных сведений при отсутствии актуальной резервной копии.
+
+### 6. Ограничения использования
+6.1. Пользователю запрещается:
+
+- Использовать Программу для незаконного сбора информации.
+- Несанкционированно изменять или уничтожать сведения об учащихся.
+- Передавать базу данных третьим лицам без соответствующих полномочий.
+- Использовать Программу для распространения персональных данных.
+- Намеренно нарушать работоспособность программного обеспечения.
+- Использовать обнаруженные уязвимости для получения неправомерного доступа к информации.
+
+6.2. Любые действия с информацией должны соответствовать назначению Программы и внутренним регламентам образовательного учреждения.
+
+### 7. Ответственность сторон
+7.1. Разработчик обеспечивает функционирование Программы в соответствии с реализованными возможностями и техническими характеристиками соответствующей версии.
+
+7.2. Разработчик не несёт ответственности за последствия неправильного ввода информации, нарушения пользователем инструкций или несанкционированного вмешательства в работу Программы в пределах, допускаемых применимым законодательством.
+
+7.3. Образовательное учреждение самостоятельно обеспечивает наличие законных оснований для обработки персональных данных, организацию доступа к ним и соблюдение требований законодательства.
+
+7.4. Пользователь несёт ответственность за действия, совершённые с использованием предоставленных ему полномочий, в соответствии с применимыми нормами законодательства и внутренними документами учреждения.
+
+7.5. Стороны освобождаются от ответственности в случаях и порядке, предусмотренных применимым законодательством.
+
+### 8. Техническая поддержка и обновления
+8.1. Разработчик вправе выпускать обновления, исправления и дополнительные функциональные возможности EduTrack.
+
+8.2. Обновления могут включать:
+
+- Исправление программных ошибок.
+- Повышение стабильности и производительности.
+- Улучшение пользовательского интерфейса.
+- Изменение существующих и добавление новых функций.
+- Улучшение механизмов защиты и хранения информации.
+
+8.3. Перед установкой обновлений рекомендуется создавать резервную копию базы данных.
+
+8.4. Условия предоставления технической поддержки определяются отдельно.
+
+### 9. Заключительные положения
+9.1. Настоящее Соглашение вступает в силу с момента его принятия пользователем.
+
+9.2. Все вопросы, не урегулированные настоящим Соглашением, регулируются применимым законодательством.
+
+9.3. Если отдельные положения настоящего Соглашения признаются недействительными, остальные положения сохраняют силу в допустимых законом пределах.
+
+9.4. Актуальная редакция Соглашения должна быть доступна пользователям Программы.
+
+---
+
+### 10. Сведения о программном обеспечении
+**Наименование:** EduTrack
+
+**Тип программного обеспечения:** Настольная информационная система.
+
+**Назначение:** Учёт учащихся и автоматизация процессов образовательного учреждения.
+
+**Платформа:** Microsoft Windows.
+
+**Разработчик:** Резванов Андрей Павлович
+
+**Версия документа:** 1.0
+
+**Дата редакции:** 16 ноября 2026 года.
+'''
 
 NAME_KEYWORDS = {
     "фио",
@@ -559,6 +719,7 @@ def ensure_employee_accounts() -> None:
 
 
 def read_setting(key: str, default: str | None = None) -> str | None:
+    ensure_database()
     connection = get_db_connection()
     try:
         row = connection.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
@@ -567,7 +728,44 @@ def read_setting(key: str, default: str | None = None) -> str | None:
         connection.close()
 
 
+def get_persistence_dir() -> Path:
+    override = os.environ.get("EDUTRACK_STORAGE_DIR")
+    if override:
+        return Path(override)
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return Path(appdata) / "EduTrack"
+    return Path.home() / ".edutrack"
+
+
+def get_persistent_credentials_path() -> Path:
+    return get_persistence_dir() / "credentials.json"
+
+
+def save_persisted_credentials(username: str, password: str) -> Path:
+    path = get_persistent_credentials_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"username": username, "password": password}, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def load_persisted_credentials() -> dict[str, str]:
+    path = get_persistent_credentials_path()
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    username = str(payload.get("username", "")).strip()
+    password = str(payload.get("password", ""))
+    if not username:
+        return {}
+    return {"username": username, "password": password}
+
+
 def write_setting(key: str, value: str) -> None:
+    ensure_database()
     connection = get_db_connection()
     try:
         connection.execute(
@@ -577,6 +775,133 @@ def write_setting(key: str, value: str) -> None:
         connection.commit()
     finally:
         connection.close()
+
+
+def normalize_repo_url(value: str | None) -> str:
+    cleaned = str(value or "").strip()
+    if not cleaned:
+        return DEFAULT_UPDATE_REPO
+
+    cleaned = cleaned.split("#", 1)[0].split("?", 1)[0].strip()
+    cleaned = cleaned.rstrip("/\\")
+    if cleaned.lower().endswith(".git"):
+        cleaned = cleaned[:-4]
+    cleaned = cleaned.rstrip("/\\")
+
+    if not cleaned.startswith(("http://", "https://")):
+        cleaned = f"https://{cleaned}"
+    return cleaned.rstrip("/\\")
+
+
+def get_update_repo_url() -> str:
+    return normalize_repo_url(read_setting("update_repo", DEFAULT_UPDATE_REPO))
+
+
+def get_github_repo_from_url(repo_url: str | None) -> str:
+    normalized = normalize_repo_url(repo_url)
+    match = re.search(r"github\.com[:/]+([^/\s:]+)\/([^/\s/?#]+)", normalized, flags=re.IGNORECASE)
+    if not match:
+        raise ValueError(f"Не удалось распознать GitHub-репозиторий: {repo_url}")
+    return f"{match.group(1)}/{match.group(2)}"
+
+
+def fetch_latest_release(repo_url: str | None = None) -> dict[str, Any] | None:
+    target_repo = normalize_repo_url(repo_url or get_update_repo_url())
+    try:
+        repo_slug = get_github_repo_from_url(target_repo)
+    except ValueError:
+        return None
+
+    api_url = f"https://api.github.com/repos/{repo_slug}/releases/latest"
+    request = urllib.request.Request(api_url, headers={"User-Agent": "EduTrack-Updater/1.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.URLError:
+        return None
+
+    tag_name = str(payload.get("tag_name") or "").strip()
+    if not tag_name:
+        return None
+
+    return {
+        "tag_name": tag_name,
+        "html_url": str(payload.get("html_url") or target_repo),
+        "repo_url": target_repo,
+        "repo_slug": repo_slug,
+    }
+
+
+def normalize_version(value: str | None) -> tuple[int, ...]:
+    text = str(value or "").strip().lower().lstrip("v")
+    if not text:
+        return (0,)
+    numbers = re.findall(r"\d+", text)
+    if not numbers:
+        return (0,)
+    return tuple(int(part) for part in numbers)
+
+
+def has_update_available(repo_url: str | None = None, current_version: str = APP_VERSION) -> dict[str, Any] | None:
+    release = fetch_latest_release(repo_url)
+    if release is None:
+        return None
+    latest_version = release["tag_name"]
+    if normalize_version(latest_version) <= normalize_version(current_version):
+        return None
+    return {**release, "current_version": current_version, "latest_version": latest_version}
+
+
+def update_employee_account(current_username: str, new_username: str | None = None, new_password: str | None = None) -> dict[str, Any]:
+    normalized_current = (current_username or "").strip()
+    if not normalized_current:
+        return {"success": False, "error": "Текущий логин не задан."}
+
+    connection = get_db_connection()
+    try:
+        row = connection.execute(
+            "SELECT id, username, password_hash FROM users WHERE username = ?",
+            (normalized_current,),
+        ).fetchone()
+        if row is None:
+            return {"success": False, "error": "Учетная запись не найдена."}
+
+        next_username = (new_username or row["username"]).strip()
+        if not next_username:
+            return {"success": False, "error": "Логин не может быть пустым."}
+
+        password_hash = row["password_hash"]
+        if new_password is not None and str(new_password).strip():
+            password_hash = hash_password(str(new_password).strip())
+
+        connection.execute(
+            "UPDATE users SET username = ?, password_hash = ? WHERE id = ?",
+            (next_username, password_hash, row["id"]),
+        )
+        connection.commit()
+        return {"success": True, "username": next_username}
+    finally:
+        connection.close()
+
+
+def run_git_update(repo_url: str | None = None) -> tuple[bool, str]:
+    project_root = Path(__file__).resolve().parent
+    git = shutil.which("git")
+    if not git:
+        return False, "Git не найден в системе."
+    if not (project_root / ".git").exists():
+        target = normalize_repo_url(repo_url or get_update_repo_url())
+        webbrowser.open(target)
+        return False, f"Открыта страница релиза: {target}"
+
+    fetch = subprocess.run([git, "fetch", "--tags"], cwd=str(project_root), capture_output=True, text=True)
+    if fetch.returncode != 0:
+        return False, fetch.stderr.strip() or "Не удалось обновить теги репозитория."
+
+    pull = subprocess.run([git, "pull", "--ff-only"], cwd=str(project_root), capture_output=True, text=True)
+    if pull.returncode != 0:
+        return False, pull.stderr.strip() or "Не удалось выполнить git pull."
+    return True, "Обновление из GitHub применено успешно."
 
 
 def xor_encrypt(data: bytes, password: str) -> bytes:
@@ -816,14 +1141,13 @@ class StudentFinderApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         ensure_database()
-        self.current_user = DEFAULT_ADMIN_USER
-        if not self._show_login_dialog():
-            self.destroy()
-            return
+        self.current_user = ""
+        self._modal_windows: list[tk.Toplevel] = []
 
         self.title("EduTrack")
-        self.geometry("1180x780")
-        self.minsize(1010, 660)
+        self.state("zoomed")
+        self.attributes("-fullscreen", False)
+        self.minsize(1180, 760)
         try:
             self.iconbitmap(resource_path("icon.ico"))
         except Exception:
@@ -850,43 +1174,65 @@ class StudentFinderApp(tk.Tk):
         self.style.map("Treeview", background=[("selected", "#dfeaff")], foreground=[("selected", "#111827")])
 
         self.configure(bg="#edf2ff")
+        self.bind("<Unmap>", lambda _event: self._sync_modal_visibility())
+        self.bind("<Map>", lambda _event: self._sync_modal_visibility())
 
-        self.background_image = self._load_background_image(opacity=0.30)
+        self.background_image = self._load_background_image(opacity=0.08)
         self.background_label = tk.Label(self, image=self.background_image, bg="#edf2ff", bd=0, highlightthickness=0)
         self.background_label.place(x=0, y=0, relwidth=1, relheight=1)
         self.background_label.lower()
         self.background_label.configure(cursor="arrow")
 
-        header = ttk.Frame(self, padding=(22, 18, 22, 14), style="Header.TFrame")
+        self._configure_menu_bar()
+
+        header = ttk.Frame(self, padding=(20, 14, 20, 12), style="Header.TFrame")
         header.pack(fill="x")
 
         logo_path = Path(resource_path("image.png"))
         if Image is not None and ImageTk is not None:
-            self.logo_photo = self._load_background_image(opacity=0.30, max_size=(110, 110), source_path=logo_path)
+            self.logo_photo = self._load_background_image(opacity=0.30, max_size=(86, 86), source_path=logo_path)
         else:
             self.logo_photo = tk.PhotoImage(file=str(logo_path))
 
         logo_label = tk.Label(header, image=self.logo_photo, bg="#edf2fb", bd=0, highlightthickness=0)
         logo_label.image = self.logo_photo
-        logo_label.pack(side="left", padx=(0, 18))
+        logo_label.pack(side="left", padx=(0, 12))
 
         title_wrap = tk.Frame(header, bg="#edf2fb")
         title_wrap.pack(side="left", fill="y")
         tk.Label(title_wrap, text="EduTrack", font=("Segoe UI", 22, "bold"), bg="#edf2fb", fg="#0f172a").pack(anchor="w")
-        tk.Label(title_wrap, text="Школьный реестр учащихся и мониторинг обучения", font=("Segoe UI", 10), bg="#edf2fb", fg="#475569").pack(anchor="w")
 
-        main_card = ttk.Frame(self, padding=18, style="Card.TFrame")
-        main_card.pack(fill="both", expand=True)
+        content_wrapper = tk.Frame(self, bg="#edf2ff")
+        content_wrapper.pack(fill="both", expand=True, padx=18, pady=(0, 18))
 
-        notebook = ttk.Notebook(main_card)
-        notebook.pack(fill="both", expand=True)
+        sidebar = tk.Frame(content_wrapper, bg="#eaf1ff", width=310, padx=14, pady=16)
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
 
-        registry_tab = ttk.Frame(notebook, padding=16, style="Card.TFrame")
-        analytics_tab = ttk.Frame(notebook, padding=16, style="Card.TFrame")
-        processes_tab = ttk.Frame(notebook, padding=16, style="Card.TFrame")
-        notebook.add(registry_tab, text="Реестр")
-        notebook.add(analytics_tab, text="Аналитика")
-        notebook.add(processes_tab, text="Процессы")
+        main_card = ttk.Frame(content_wrapper, padding=16, style="Card.TFrame")
+        main_card.pack(side="right", fill="both", expand=True)
+
+        account_card = tk.Frame(sidebar, bg="#ffffff", padx=14, pady=12, highlightbackground="#dfe7f2", highlightthickness=1)
+        account_card.pack(fill="x", pady=(0, 12))
+        tk.Label(account_card, text="Учетка", bg="#ffffff", fg="#1d4ed8", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        self.account_name_var = tk.StringVar(value=self.current_user or "admin")
+        tk.Label(account_card, textvariable=self.account_name_var, bg="#ffffff", fg="#0f172a", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(8, 0))
+        ttk.Button(account_card, text="Проверить обновления", command=self.check_for_updates).pack(fill="x", pady=(12, 0))
+        ttk.Button(account_card, text="Репозиторий обновлений", command=self.change_update_repo).pack(fill="x", pady=(8, 0))
+
+        nav_card = tk.Frame(sidebar, bg="#ffffff", padx=12, pady=12, highlightbackground="#dfe7f2", highlightthickness=1)
+        nav_card.pack(fill="x", pady=(0, 12))
+        tk.Label(nav_card, text="Навигация", bg="#ffffff", fg="#1f2937", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+
+        self.tab_frames: dict[str, tk.Widget] = {}
+        self.tab_container = tk.Frame(main_card, bg="#ffffff")
+        self.tab_container.pack(fill="both", expand=True)
+
+        registry_tab = ttk.Frame(self.tab_container, padding=16, style="Card.TFrame")
+        analytics_tab = ttk.Frame(self.tab_container, padding=16, style="Card.TFrame")
+        processes_tab = ttk.Frame(self.tab_container, padding=16, style="Card.TFrame")
+        agreement_tab = ttk.Frame(self.tab_container, padding=18, style="Card.TFrame")
+        self.tab_frames = {"registry": registry_tab, "analytics": analytics_tab, "processes": processes_tab, "agreement": agreement_tab}
 
         self.path_var = tk.StringVar()
         ttk.Label(registry_tab, text="Путь к папке или файлу:", style="Body.TLabel").pack(anchor="w")
@@ -898,27 +1244,31 @@ class StudentFinderApp(tk.Tk):
         self.path_entry.pack(side="left", fill="x", expand=True)
         ttk.Button(path_row, text="Обзор", style="Secondary.TButton", command=self.select_path).pack(side="left", padx=(10, 0))
 
-        filter_row = ttk.Frame(registry_tab, style="Card.TFrame")
+        filter_row = ttk.Frame(registry_tab, style="Card.TFrame", padding=(14, 10))
         filter_row.pack(fill="x", pady=(0, 12))
 
-        ttk.Label(filter_row, text="Возраст от", style="Filter.TLabel").pack(side="left")
+        age_filter = tk.Frame(filter_row, bg="#edf4ff", highlightbackground="#dfeaff", highlightthickness=1)
+        age_filter.pack(fill="x")
+        tk.Label(age_filter, text="Фильтр по возрасту", bg="#edf4ff", fg="#1d4ed8", font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=12, pady=(10, 0))
+
+        age_controls = tk.Frame(age_filter, bg="#edf4ff")
+        age_controls.pack(fill="x", padx=12, pady=(6, 12))
+
+        ttk.Label(age_controls, text="от", style="Filter.TLabel").pack(side="left")
         self.min_age_var = tk.StringVar(value=str(DEFAULT_MIN_AGE))
-        age_min_spin = ttk.Spinbox(filter_row, from_=1, to=30, textvariable=self.min_age_var, width=5)
+        age_min_spin = ttk.Spinbox(age_controls, from_=1, to=30, textvariable=self.min_age_var, width=5)
         age_min_spin.pack(side="left", padx=(8, 18))
 
-        ttk.Label(filter_row, text="до", style="Filter.TLabel").pack(side="left")
+        ttk.Label(age_controls, text="до", style="Filter.TLabel").pack(side="left")
         self.max_age_var = tk.StringVar(value=str(DEFAULT_MAX_AGE))
-        age_max_spin = ttk.Spinbox(filter_row, from_=1, to=30, textvariable=self.max_age_var, width=5)
+        age_max_spin = ttk.Spinbox(age_controls, from_=1, to=30, textvariable=self.max_age_var, width=5)
         age_max_spin.pack(side="left", padx=(8, 18))
-        ttk.Label(filter_row, text="лет", style="Filter.TLabel").pack(side="left")
+        ttk.Label(age_controls, text="лет", style="Filter.TLabel").pack(side="left")
 
         buttons = ttk.Frame(registry_tab, style="Card.TFrame")
         buttons.pack(fill="x")
         ttk.Button(buttons, text="Найти учеников", style="Primary.TButton", command=self.run_search).pack(side="left")
         ttk.Button(buttons, text="Экспорт CSV", style="Secondary.TButton", command=self.export_report).pack(side="left", padx=(8, 0))
-        ttk.Button(buttons, text="Массовое зачисление", style="Quiet.TButton", command=lambda: self._bulk_action("enroll")).pack(side="left", padx=(8, 0))
-        ttk.Button(buttons, text="Массовый перевод", style="Quiet.TButton", command=lambda: self._bulk_action("transfer")).pack(side="left", padx=(8, 0))
-        ttk.Button(buttons, text="Массовое выбытие", style="Quiet.TButton", command=lambda: self._bulk_action("withdraw")).pack(side="left", padx=(8, 0))
 
         self.status_var = tk.StringVar(value="Готов к формированию списков и аналитики по учащимся.")
         ttk.Label(registry_tab, textvariable=self.status_var, style="Body.TLabel").pack(anchor="w", pady=(12, 8))
@@ -936,6 +1286,36 @@ class StudentFinderApp(tk.Tk):
         self.result_tree.heading("age", text="Возраст")
         self.result_tree.column("file", width=220, anchor="w")
         self.result_tree.column("sheet", width=90, anchor="center")
+
+        for tab_name, title in (("registry", "Реестр"), ("analytics", "Аналитика"), ("processes", "Процессы")):
+            btn = tk.Button(nav_card, text=title, bg="#f3f6fb", fg="#1f2937", bd=0, padx=14, pady=10, anchor="w", font=("Segoe UI", 10, "bold"), command=lambda name=tab_name: self._show_tab(name))
+            btn.pack(fill="x", pady=4)
+
+        agreement_box = tk.Frame(sidebar, bg="#ffffff", padx=12, pady=12, highlightbackground="#dfe7f2", highlightthickness=1)
+        agreement_box.pack(fill="x", pady=(0, 12))
+        agreement_label = tk.Label(agreement_box, text="Пользовательское соглашение", bg="#ffffff", fg="#1d4ed8", font=("Segoe UI", 10, "bold"), cursor="hand2")
+        agreement_label.pack(anchor="w")
+        agreement_label.bind("<Button-1>", lambda event: self._show_tab("agreement"))
+
+        info_bottom = tk.Frame(sidebar, bg="#ffffff", padx=16, pady=12, highlightbackground="#dfe7f2", highlightthickness=1)
+        info_bottom.pack(fill="x")
+        tk.Label(info_bottom, image=self.logo_photo, bg="#ffffff", bd=0, highlightthickness=0).pack(anchor="center")
+        tk.Label(info_bottom, text="EduTrack", bg="#ffffff", fg="#0f172a", font=("Segoe UI", 16, "bold")).pack(anchor="center")
+        tk.Label(info_bottom, text="Школьный реестр учащихся", bg="#ffffff", fg="#475569", font=("Segoe UI", 9)).pack(anchor="center", pady=(2, 0))
+
+        agreement_title = tk.Label(agreement_tab, text="Пользовательское соглашение", bg="#ffffff", fg="#0f172a", font=("Segoe UI", 20, "bold"), justify="left")
+        agreement_title.pack(anchor="w", pady=(0, 12))
+
+        agreement_scroll = tk.Scrollbar(agreement_tab)
+        agreement_scroll.pack(side="right", fill="y")
+        agreement_text = tk.Text(agreement_tab, wrap="word", width=110, height=32, bg="#f8fbff", bd=0, padx=12, pady=12, relief="flat", font=("Segoe UI", 10), yscrollcommand=agreement_scroll.set)
+        agreement_text.pack(side="left", fill="both", expand=True)
+        agreement_text.insert("end", USER_AGREEMENT_TEXT)
+        agreement_text.configure(state="disabled")
+        agreement_scroll.configure(command=agreement_text.yview)
+
+        self._show_tab("registry")
+
         self.result_tree.column("name", width=230, anchor="w")
         self.result_tree.column("class_name", width=90, anchor="center")
         self.result_tree.column("birthday", width=140, anchor="center")
@@ -1100,41 +1480,373 @@ class StudentFinderApp(tk.Tk):
             accent="#a75f2a",
         )
 
-    def _show_login_dialog(self) -> bool:
+        self.after(250, self.check_for_updates)
+
+    def _show_tab(self, tab_name: str) -> None:
+        for key, frame in self.tab_frames.items():
+            if key == tab_name:
+                frame.pack(fill="both", expand=True)
+                frame.tkraise()
+            else:
+                frame.pack_forget()
+
+    def _configure_menu_bar(self) -> None:
+        menubar = tk.Menu(self)
+        self.config(menu=menubar)
+
+        # Верхнее меню оставлено пустым, чтобы учетка была только в левой панели.
+
+    def _center_dialog(self, dialog: tk.Toplevel, width: int, height: int) -> None:
+        root_x = self.winfo_rootx()
+        root_y = self.winfo_rooty()
+        root_w = self.winfo_width()
+        root_h = self.winfo_height()
+        x = root_x + max(0, (root_w - width) // 2)
+        y = root_y + max(0, (root_h - height) // 2)
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _sync_modal_visibility(self) -> None:
+        if self.state() == "withdrawn":
+            for modal in list(self._modal_windows):
+                try:
+                    modal.withdraw()
+                except tk.TclError:
+                    pass
+            return
+
+        for modal in list(self._modal_windows):
+            try:
+                modal.deiconify()
+            except tk.TclError:
+                pass
+
+    def _show_modal_message(self, title: str, message: str, kind: str = "info") -> None:
+        colors = {"info": ("#eff6ff", "#1d4ed8"), "warning": ("#fff7ed", "#c2410c"), "error": ("#fef2f2", "#b91c1c"), "success": ("#ecfdf5", "#15803d")}
+        _, accent = colors.get(kind, colors["info"])
+
         dialog = tk.Toplevel(self)
-        dialog.title("Авторизация EduTrack")
-        dialog.geometry("340x180")
+        dialog.overrideredirect(True)
         dialog.transient(self)
-        dialog.grab_set()
+        dialog.attributes("-topmost", True)
+        dialog.configure(bg="#f3f4f6")
+        dialog.protocol("WM_DELETE_WINDOW", lambda: close_dialog())
+        self._modal_windows.append(dialog)
+        self._center_dialog(dialog, 420, 180)
 
-        tk.Label(dialog, text="Логин", font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=18, pady=(18, 4))
-        username_var = tk.StringVar(value=DEFAULT_ADMIN_USER)
-        tk.Entry(dialog, textvariable=username_var, width=28).pack(anchor="w", padx=18, fill="x")
+        body = tk.Frame(dialog, bg="#ffffff", padx=24, pady=18, highlightbackground="#dfe7f2", highlightthickness=1)
+        body.pack(fill="both", expand=True)
 
-        tk.Label(dialog, text="Пароль", font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=18, pady=(12, 4))
-        password_var = tk.StringVar()
-        tk.Entry(dialog, textvariable=password_var, show="*", width=28).pack(anchor="w", padx=18, fill="x")
+        close_btn = tk.Button(body, text="×", font=("Segoe UI", 12, "bold"), bd=0, bg="#ffffff", fg="#475569", command=lambda: close_dialog())
+        close_btn.pack(anchor="ne")
+
+        tk.Label(body, text=title, justify="left", bg="#ffffff", fg="#1f2937", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 8))
+        tk.Label(body, text=message, justify="left", wraplength=320, bg="#ffffff", fg="#1f2937", font=("Segoe UI", 10)).pack(anchor="w", pady=(0, 16))
+        ttk.Button(body, text="OK", command=lambda: close_dialog()).pack(anchor="e")
+
+        def close_dialog() -> None:
+            if dialog in self._modal_windows:
+                self._modal_windows.remove(dialog)
+            dialog.destroy()
+            self._sync_modal_visibility()
+
+        dialog.focus_set()
+        dialog.wait_window(dialog)
+
+    def _show_modal_confirm(self, title: str, message: str) -> bool:
+        result = {"value": False}
+
+        dialog = tk.Toplevel(self)
+        dialog.overrideredirect(True)
+        dialog.transient(self)
+        dialog.attributes("-topmost", True)
+        dialog.configure(bg="#f3f4f6")
+        self._modal_windows.append(dialog)
+        self._center_dialog(dialog, 430, 180)
+
+        body = tk.Frame(dialog, bg="#ffffff", padx=24, pady=18, highlightbackground="#dfe7f2", highlightthickness=1)
+        body.pack(fill="both", expand=True)
+
+        close_btn = tk.Button(body, text="×", font=("Segoe UI", 12, "bold"), bd=0, bg="#ffffff", fg="#475569", command=lambda: close_dialog(False))
+        close_btn.pack(anchor="ne")
+
+        tk.Label(body, text=title, bg="#ffffff", fg="#1f2937", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 10))
+        tk.Label(body, text=message, justify="left", wraplength=320, bg="#ffffff", fg="#1f2937", font=("Segoe UI", 10)).pack(anchor="w", pady=(0, 16))
+
+        buttons = tk.Frame(body, bg="#ffffff")
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="Да", command=lambda: close_dialog(True)).pack(side="right", padx=(8, 0))
+        ttk.Button(buttons, text="Нет", command=lambda: close_dialog(False)).pack(side="right")
+
+        def close_dialog(value: bool) -> None:
+            result["value"] = value
+            if dialog in self._modal_windows:
+                self._modal_windows.remove(dialog)
+            dialog.destroy()
+            self._sync_modal_visibility()
+
+        dialog.focus_set()
+        dialog.wait_window(dialog)
+        return result["value"]
+
+    def _show_modal_prompt(self, title: str, prompt: str, initial: str = "", show: str = "") -> str | None:
+        result = {"value": None}
+
+        dialog = tk.Toplevel(self)
+        dialog.overrideredirect(True)
+        dialog.transient(self)
+        dialog.attributes("-topmost", True)
+        dialog.configure(bg="#f3f4f6")
+        self._modal_windows.append(dialog)
+        self._center_dialog(dialog, 420, 200)
+
+        body = tk.Frame(dialog, bg="#ffffff", padx=20, pady=18, highlightbackground="#dfe7f2", highlightthickness=1)
+        body.pack(fill="both", expand=True)
+
+        close_btn = tk.Button(body, text="×", font=("Segoe UI", 12, "bold"), bd=0, bg="#ffffff", fg="#475569", command=lambda: close_dialog(None))
+        close_btn.pack(anchor="ne")
+
+        tk.Label(body, text=title, bg="#ffffff", fg="#1f2937", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 8))
+        tk.Label(body, text=prompt, bg="#ffffff", fg="#1f2937", font=("Segoe UI", 10)).pack(anchor="w", pady=(0, 8))
+        value_var = tk.StringVar(value=initial)
+        entry = tk.Entry(body, textvariable=value_var, show=show, font=("Segoe UI", 10), width=40)
+        entry.pack(fill="x", pady=(0, 14))
+        entry.focus_set()
+
+        buttons = tk.Frame(body, bg="#ffffff")
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="Сохранить", command=lambda: close_dialog(value_var.get())).pack(side="right")
+        ttk.Button(buttons, text="Отмена", command=lambda: close_dialog(None)).pack(side="right", padx=(0, 8))
+
+        def close_dialog(value: str | None) -> None:
+            result["value"] = value
+            if dialog in self._modal_windows:
+                self._modal_windows.remove(dialog)
+            dialog.destroy()
+            self._sync_modal_visibility()
+
+        dialog.focus_set()
+        dialog.wait_window(dialog)
+        return result["value"]
+
+    def _show_path_picker(self, mode: str = "directory", start_path: str | None = None) -> str | None:
+        result = {"value": None}
+        dialog = tk.Toplevel(self)
+        dialog.overrideredirect(True)
+        dialog.transient(self)
+        dialog.attributes("-topmost", True)
+        dialog.configure(bg="#f3f4f6")
+        self._modal_windows.append(dialog)
+        self._center_dialog(dialog, 560, 420)
+
+        body = tk.Frame(dialog, bg="#ffffff", padx=12, pady=12, highlightbackground="#dfe7f2", highlightthickness=1)
+        body.pack(fill="both", expand=True)
+
+        tk.Label(body, text="Путь:", bg="#ffffff", fg="#1f2937", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        path_var = tk.StringVar(value=str(Path(start_path or self.path_var.get() or Path.cwd())))
+        path_entry = tk.Entry(body, textvariable=path_var, font=("Segoe UI", 9), width=50)
+        path_entry.pack(fill="x", pady=(4, 8))
+
+        listbox_frame = tk.Frame(body, bg="#ffffff")
+        listbox_frame.pack(fill="both", expand=True)
+        listbox = tk.Listbox(listbox_frame, width=70, height=14, bg="#f8fafc", fg="#0f172a", font=("Segoe UI", 9), activestyle="none")
+        listbox.pack(side="left", fill="both", expand=True)
+        scroll = tk.Scrollbar(listbox_frame, orient="vertical", command=listbox.yview)
+        scroll.pack(side="right", fill="y")
+        listbox.configure(yscrollcommand=scroll.set)
+
+        actions = tk.Frame(body, bg="#ffffff")
+        actions.pack(fill="x", pady=(8, 0))
+
+        def refresh_items() -> None:
+            folder = Path(path_var.get())
+            if not folder.exists() or not folder.is_dir():
+                folder = Path.cwd()
+                path_var.set(str(folder))
+            listbox.delete(0, tk.END)
+            entries = sorted(folder.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+            for child in entries:
+                listbox.insert(tk.END, child.name)
+
+        def close_dialog(value: str | None) -> None:
+            result["value"] = value
+            if dialog in self._modal_windows:
+                self._modal_windows.remove(dialog)
+            dialog.destroy()
+            self._sync_modal_visibility()
+
+        def item_from_selection() -> Path | None:
+            if not listbox.curselection():
+                return None
+            selected_name = listbox.get(listbox.curselection()[0])
+            return Path(path_var.get()) / selected_name
+
+        def open_dir() -> None:
+            item = item_from_selection()
+            if item is None:
+                return
+            if item.is_dir():
+                path_var.set(str(item))
+                refresh_items()
+            elif mode == "file":
+                close_dialog(str(item))
+
+        def choose_current() -> None:
+            value = Path(path_var.get())
+            if mode == "directory" and value.exists() and value.is_dir():
+                close_dialog(str(value))
+            elif mode == "file" and value.exists() and value.is_file():
+                close_dialog(str(value))
+
+        def go_up() -> None:
+            path_var.set(str(Path(path_var.get()).parent))
+            refresh_items()
+
+        tk.Button(actions, text="↑", width=4, command=go_up).pack(side="left")
+        tk.Button(actions, text="Открыть", command=open_dir).pack(side="left", padx=(8, 0))
+        tk.Button(actions, text="Выбрать", command=choose_current).pack(side="right")
+        tk.Button(actions, text="Отмена", command=lambda: close_dialog(None)).pack(side="right", padx=(0, 8))
+
+        listbox.bind("<Double-Button-1>", lambda _event: open_dir())
+        refresh_items()
+        dialog.wait_window(dialog)
+        return result["value"]
+
+    def _show_login_dialog(self) -> bool:
+        result = {"ok": False}
+        saved = load_persisted_credentials()
+        username_default = saved.get("username") or read_setting("current_user", DEFAULT_ADMIN_USER) or DEFAULT_ADMIN_USER
+        password_default = saved.get("password", "")
+
+        dialog = tk.Toplevel(self)
+        dialog.overrideredirect(True)
+        dialog.transient(self)
+        dialog.attributes("-topmost", True)
+        dialog.configure(bg="#f3f4f6")
+        self._modal_windows.append(dialog)
+        self._center_dialog(dialog, 380, 220)
+
+        body = tk.Frame(dialog, bg="#ffffff", padx=24, pady=20, highlightbackground="#dfe7f2", highlightthickness=1)
+        body.pack(fill="both", expand=True)
+
+        close_btn = tk.Button(body, text="×", font=("Segoe UI", 12, "bold"), bd=0, bg="#ffffff", fg="#475569", command=lambda: close_dialog(False))
+        close_btn.pack(anchor="ne")
+
+        tk.Label(body, text="Логин", bg="#ffffff", fg="#1f2937", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 6))
+        username_var = tk.StringVar(value=username_default)
+        login_entry = tk.Entry(body, textvariable=username_var, width=28, font=("Segoe UI", 10))
+        login_entry.pack(anchor="w", fill="x", pady=(0, 10))
+
+        tk.Label(body, text="Пароль", bg="#ffffff", fg="#1f2937", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 6))
+        password_var = tk.StringVar(value=password_default)
+        password_entry = tk.Entry(body, textvariable=password_var, show="*", width=28, font=("Segoe UI", 10))
+        password_entry.pack(anchor="w", fill="x", pady=(0, 12))
+
+        def close_dialog(is_success: bool, username: str | None = None) -> None:
+            if is_success and username:
+                self.current_user = username
+                write_setting("current_user", username)
+                save_persisted_credentials(username, password_var.get())
+            else:
+                self.current_user = ""
+            result["ok"] = is_success
+            if dialog in self._modal_windows:
+                self._modal_windows.remove(dialog)
+            dialog.destroy()
+            self._sync_modal_visibility()
 
         def attempt_login() -> None:
             username = username_var.get().strip()
             password = password_var.get()
             if authenticate_employee(username, password):
-                self.current_user = username
-                dialog.destroy()
+                close_dialog(True, username)
                 return
-            messagebox.showerror("Ошибка доступа", "Неверный логин или пароль.")
+            self._show_modal_message("Ошибка доступа", "Неверный логин или пароль.", kind="error")
+            password_var.set("")
 
-        tk.Button(dialog, text="Войти", command=attempt_login, width=20).pack(pady=(18, 0))
-        self.wait_window(dialog)
-        return self.current_user is not None and self.current_user != ""
+        ttk.Button(body, text="Войти", command=attempt_login).pack(anchor="e")
+        login_entry.focus_set()
+        dialog.wait_window(dialog)
+        return result["ok"]
+
+    def change_account_credentials(self) -> None:
+        current_username = self.current_user or read_setting("current_user", DEFAULT_ADMIN_USER) or DEFAULT_ADMIN_USER
+        username = self._show_modal_prompt("Смена логина", "Новый логин:", initial=current_username)
+        if username is None:
+            return
+
+        password = self._show_modal_prompt("Смена пароля", "Новый пароль:", show="*")
+        if password is None:
+            return
+
+        confirm = self._show_modal_prompt("Подтверждение", "Повторите новый пароль:", show="*")
+        if confirm is None:
+            return
+        if password != confirm:
+            self._show_modal_message("Ошибка", "Пароли не совпадают.", kind="error")
+            return
+
+        result = update_employee_account(current_username, new_username=username.strip() or None, new_password=password.strip() or None)
+        if not result["success"]:
+            self._show_modal_message("Ошибка", result["error"], kind="error")
+            return
+
+        self.current_user = result["username"]
+        write_setting("current_user", self.current_user)
+        self._show_modal_message("Готово", "Логин и пароль обновлены.", kind="success")
+
+    def change_update_repo(self) -> None:
+        repo_url = self._show_modal_prompt(
+            "Репозиторий обновлений",
+            "Укажите GitHub URL для проверки релизов:",
+            initial=get_update_repo_url(),
+        )
+        if repo_url is None:
+            return
+        normalized = normalize_repo_url(repo_url)
+        write_setting("update_repo", normalized)
+        self.status_var.set(f"Репозиторий обновлений: {normalized}")
+        self._show_modal_message("Готово", f"Репозиторий обновлений сохранён: {normalized}", kind="success")
+
+    def _check_update_result(self, payload: dict[str, Any] | None, silent: bool = False) -> None:
+        if payload is None:
+            if not silent:
+                self._show_modal_message("Обновления", "Проверка обновлений не завершилась или релизов не найдено.", kind="info")
+            return
+
+        if payload.get("available"):
+            choice = self._show_modal_confirm(
+                "Доступно обновление",
+                f"Есть новая версия: {payload['latest_version']}\n\nОбновить автоматически из {payload['repo_url']}?",
+            )
+            if choice:
+                ok, detail = run_git_update(payload["repo_url"])
+                if ok:
+                    self._show_modal_message("Обновление", detail, kind="success")
+                    self.destroy()
+                    return
+                self._show_modal_message("Обновление", detail, kind="warning")
+            return
+
+        if not silent:
+            self._show_modal_message("Обновления", f"У вас актуальная версия: {payload['current_version']}", kind="success")
+
+    def check_for_updates(self) -> None:
+        repo_url = get_update_repo_url()
+
+        def worker() -> None:
+            info = has_update_available(repo_url)
+            self.after(0, lambda: self._check_update_result({**(info or {}), "available": bool(info), "repo_url": repo_url, "current_version": APP_VERSION} if info else {"available": False, "current_version": APP_VERSION, "repo_url": repo_url}, silent=False))
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
 
     def _confirm_dangerous_action(self, action_text: str) -> bool:
-        return messagebox.askyesno("Подтверждение операции", f"Вы действительно хотите выполнить: {action_text}?")
+        return self._show_modal_confirm("Подтверждение операции", f"Вы действительно хотите выполнить: {action_text}?")
 
     def _bulk_action(self, operation: str) -> None:
         selected = self.result_tree.selection()
         if not selected:
-            messagebox.showwarning("Нет выбора", "Сначала выберите строки в таблице.")
+            self._show_modal_message("Нет выбора", "Сначала выберите строки в таблице.", kind="warning")
             return
 
         records = []
@@ -1145,7 +1857,7 @@ class StudentFinderApp(tk.Tk):
             records.append({"name": values[2], "birthday": values[4], "class_name": values[3]})
 
         if not records:
-            messagebox.showwarning("Нет данных", "Выделенные строки не содержат корректных записей.")
+            self._show_modal_message("Нет данных", "Выделенные строки не содержат корректных записей.", kind="warning")
             return
 
         action_label = {"enroll": "зачисление", "transfer": "перевод", "withdraw": "выбытие"}[operation]
@@ -1154,17 +1866,17 @@ class StudentFinderApp(tk.Tk):
 
         target_class = None
         if operation == "transfer":
-            target_class = simpledialog.askstring("Перевод в класс", "Укажите новый класс:", parent=self)
+            target_class = self._show_modal_prompt("Перевод в класс", "Укажите новый класс:")
             if target_class is None:
                 return
 
         result = apply_student_batch(records, operation=operation, target_class=target_class, reason=f"{action_label} через интерфейс ({self.current_user})")
         if not result["success"]:
-            messagebox.showerror("Ошибка операции", "; ".join(result["errors"]))
+            self._show_modal_message("Ошибка операции", "; ".join(result["errors"]), kind="error")
             return
 
         self.status_var.set(f"Выполнена массовая операция: {action_label}. Обновлено {result['updated_count']} записей.")
-        messagebox.showinfo("Готово", f"Операция выполнена: {result['updated_count']} записей.")
+        self._show_modal_message("Готово", f"Операция выполнена: {result['updated_count']} записей.", kind="success")
         self.run_search()
 
     def _status_badge(self, parent: tk.Misc, text: str, bg: str, fg: str = "#ffffff") -> None:
@@ -1278,45 +1990,47 @@ class StudentFinderApp(tk.Tk):
 
         with Image.open(image_path) as img:
             rgba = img.convert("RGBA")
-            if max_size is not None:
-                rgba.thumbnail(max_size, Image.Resampling.LANCZOS)
+            target_size = max_size or (1200, 1200)
+            rgba.thumbnail(target_size, Image.Resampling.LANCZOS)
             alpha = rgba.getchannel("A")
             new_alpha = alpha.point(lambda p: int(p * opacity))
             rgba.putalpha(new_alpha)
             return ImageTk.PhotoImage(rgba)
 
     def select_path(self) -> None:
-        path = filedialog.askdirectory(title="Выберите папку с файлами")
-        if path:
-            self.path_var.set(path)
+        current = self.path_var.get().strip() or str(Path.cwd())
+        directory_path = filedialog.askdirectory(
+            title="Выберите папку с файлами",
+            initialdir=current,
+            mustexist=True,
+        )
+        if directory_path:
+            self.path_var.set(directory_path)
             return
 
-        file = filedialog.askopenfilename(
-            title="Выберите Excel/CSV/TXT файл",
-            filetypes=[
-                ("Все поддерживаемые файлы", "*.xlsx *.xls *.xlsm *.csv *.txt *.tsv"),
-                ("Excel", "*.xlsx *.xls *.xlsm"),
-                ("CSV/TXT", "*.csv *.txt *.tsv"),
-            ],
+        file_path = filedialog.askopenfilename(
+            title="Выберите файл данных",
+            initialdir=current,
+            filetypes=[("Excel/CSV/TXT", "*.xlsx *.xls *.xlsm *.csv *.txt *.tsv"), ("Все файлы", "*.*")],
         )
-        if file:
-            self.path_var.set(file)
+        if file_path:
+            self.path_var.set(file_path)
 
     def run_search(self) -> None:
         source = self.path_var.get().strip()
         if not source:
-            messagebox.showwarning("Путь не выбран", "Выберите папку или файл.")
+            self._show_modal_message("Путь не выбран", "Выберите папку или файл.", kind="warning")
             return
 
         try:
             min_age = int(self.min_age_var.get())
             max_age = int(self.max_age_var.get())
         except ValueError:
-            messagebox.showwarning("Некорректный возраст", "Возраст должен быть числом.")
+            self._show_modal_message("Некорректный возраст", "Возраст должен быть числом.", kind="warning")
             return
 
         if min_age > max_age:
-            messagebox.showwarning("Некорректный диапазон", "Минимальный возраст не может быть больше максимального.")
+            self._show_modal_message("Некорректный диапазон", "Минимальный возраст не может быть больше максимального.", kind="warning")
             return
 
         matches = scan_path(source, min_age=min_age, max_age=max_age)
@@ -1342,19 +2056,16 @@ class StudentFinderApp(tk.Tk):
 
     def export_report(self) -> None:
         if not self.results:
-            messagebox.showinfo("Нет данных", "Сначала выполните поиск.")
+            self._show_modal_message("Нет данных", "Сначала выполните поиск.", kind="info")
             return
 
-        output_path = filedialog.asksaveasfilename(
-            title="Сохранить CSV-отчёт",
-            defaultextension=".csv",
-            filetypes=[("CSV", "*.csv")],
-        )
+        default_name = "EduTrack_report.csv"
+        output_path = self._show_modal_prompt("Сохранить CSV-отчёт", "Укажите путь к файлу:", initial=str(Path.cwd() / default_name))
         if not output_path:
             return
 
         path = build_report(self.results, output_path)
-        messagebox.showinfo("Готово", f"Отчёт сохранён: {path}")
+        self._show_modal_message("Готово", f"Отчёт сохранён: {path}", kind="success")
 
     def _set_result_text(self, text: str) -> None:
         self.result_tree.delete(*self.result_tree.get_children())
